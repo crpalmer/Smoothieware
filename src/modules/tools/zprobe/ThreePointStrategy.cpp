@@ -36,6 +36,11 @@
 
     leveling-strategy.three-point-leveling.tolerance   0.03    # the probe tolerance in mm, default is 0.03mm
 
+    The m-codes use to trigger the leveling process, report its status and to test the probe points can be set using the config lines
+
+    leveling-strategy.three-point-leveling.test_m_code     29          # The m-code to trigger the leveling
+    leveling-strategy.three-point-leveling.status_m_code   31          # The m-code to trigger the leveling
+    leveling-strategy.three-point-leveling.probe_m_code    32          # The m-code to trigger the leveling
 
     Usage
     -----
@@ -78,6 +83,9 @@
 #define home_checksum                CHECKSUM("home_first")
 #define tolerance_checksum           CHECKSUM("tolerance")
 #define save_plane_checksum          CHECKSUM("save_plane")
+#define probe_m_code_checksum        CHECKSUM("probe_m_code")
+#define status_m_code_checksum       CHECKSUM("status_m_code")
+#define test_m_code_checksum         CHECKSUM("test_m_code")
 
 ThreePointStrategy::ThreePointStrategy(ZProbe *zprobe) : LevelingStrategy(zprobe)
 {
@@ -109,6 +117,11 @@ bool ThreePointStrategy::handleConfig()
     this->home= THEKERNEL->config->value(leveling_strategy_checksum, three_point_leveling_strategy_checksum, home_checksum)->by_default(true)->as_bool();
     this->tolerance= THEKERNEL->config->value(leveling_strategy_checksum, three_point_leveling_strategy_checksum, tolerance_checksum)->by_default(0.03F)->as_number();
     this->save= THEKERNEL->config->value(leveling_strategy_checksum, three_point_leveling_strategy_checksum, save_plane_checksum)->by_default(false)->as_bool();
+
+    this->probe_m_code = THEKERNEL->config->value(leveling_strategy_checksum, three_point_leveling_strategy_checksum, probe_m_code_checksum)->by_default(32)->as_number();
+    this->status_m_code = THEKERNEL->config->value(leveling_strategy_checksum, three_point_leveling_strategy_checksum, status_m_code_checksum)->by_default(32)->as_number();
+    this->test_m_code = THEKERNEL->config->value(leveling_strategy_checksum, three_point_leveling_strategy_checksum, test_m_code_checksum)->by_default(32)->as_number();
+
     return true;
 }
 
@@ -131,7 +144,7 @@ bool ThreePointStrategy::handleGcode(Gcode *gcode)
             gcode->stream->printf("Probe is %s\n", zprobe->getProbeStatus() ? "Triggered" : "Not triggered");
             return true;
 
-        } else if( gcode->g == 32 ) { // three point probe
+        } else if( gcode->g == probe_m_code ) { // three point probe
             // first wait for an empty queue i.e. no moves left
             THEKERNEL->conveyor->wait_for_idle();
 

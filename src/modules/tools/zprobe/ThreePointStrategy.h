@@ -36,6 +36,9 @@ private:
         bool save:1;
     };
     float tolerance;
+    uint16_t probe_m_code:10;
+    uint16_t status_m_code:10;
+    uint16_t test_m_code:10;
 };
 
 #endif
