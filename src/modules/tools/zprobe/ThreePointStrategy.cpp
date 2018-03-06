@@ -42,6 +42,10 @@
     leveling-strategy.three-point-leveling.status_m_code   31          # The m-code to trigger the leveling
     leveling-strategy.three-point-leveling.probe_m_code    32          # The m-code to trigger the leveling
 
+    The probing sequence is different for cartesian printers and delta printers.  You can specify the style of printer using the config line
+
+    leveling-strategy.three-point-leveling.is_delta       false       # whether or not this is a delta printer
+
     Usage
     -----
     G29 probes the three probe points and reports the Z at each point, if a plane is active it will be used to level the probe.
@@ -86,6 +90,7 @@
 #define probe_m_code_checksum        CHECKSUM("probe_m_code")
 #define status_m_code_checksum       CHECKSUM("status_m_code")
 #define test_m_code_checksum         CHECKSUM("test_m_code")
+#define is_delta_checksum            CHECKSUM("is_delta")
 
 ThreePointStrategy::ThreePointStrategy(ZProbe *zprobe) : LevelingStrategy(zprobe)
 {
@@ -122,6 +127,8 @@ bool ThreePointStrategy::handleConfig()
     this->status_m_code = THEKERNEL->config->value(leveling_strategy_checksum, three_point_leveling_strategy_checksum, status_m_code_checksum)->by_default(32)->as_number();
     this->test_m_code = THEKERNEL->config->value(leveling_strategy_checksum, three_point_leveling_strategy_checksum, test_m_code_checksum)->by_default(32)->as_number();
 
+    this->is_delta = THEKERNEL->config->value(leveling_strategy_checksum, three_point_leveling_strategy_checksum, is_delta_checksum)->by_default(false)->as_bool();
+
     return true;
 }
 
@@ -129,13 +136,13 @@ bool ThreePointStrategy::handleGcode(Gcode *gcode)
 {
     if(gcode->has_g) {
         // G code processing
-        if(gcode->g == 29) { // test probe points for level
+        if(gcode->g == test_m_code) { // test probe points for level
             if(!test_probe_points(gcode)) {
                 gcode->stream->printf("Probe failed to complete, probe not triggered or other error\n");
             }
             return true;
 
-        } else if( gcode->g == 31 ) { // report status
+        } else if( gcode->g == status_m_code ) { // report status
             if(this->plane == nullptr) {
                  gcode->stream->printf("Bed leveling plane is not set\n");
             }else{
@@ -262,21 +269,14 @@ void ThreePointStrategy::homeXY()
     THEKERNEL->call_event(ON_GCODE_RECEIVED, &gc);
 }
 
-bool ThreePointStrategy::doProbing(StreamOutput *stream)
+bool ThreePointStrategy::findBedCartesian()
 {
     float x, y;
-    // check the probe points have been defined
-    for (int i = 0; i < 3; ++i) {
-        std::tie(x, y) = probe_points[i];
-        if(isnan(x) || isnan(y)) {
-            stream->printf("Probe point P%d has not been defined, use M557 P%d Xnnn Ynnn to define it\n", i, i);
-            return false;
-        }
-    }
-
     // optionally home XY axis first, but allow for manual homing
-    if(this->home)
-        homeXY();
+    if(this->home) {
+        if (is_delta) zprobe->home();
+        else homeXY();
+    }
 
     // move to the first probe point
     std::tie(x, y) = probe_points[0];
@@ -299,6 +299,47 @@ bool ThreePointStrategy::doProbing(StreamOutput *stream)
 
     // move up to specified probe start position
     zprobe->coordinated_move(NAN, NAN, zprobe->getProbeHeight(), zprobe->getSlowFeedrate()); // move to probe start position
+
+    return true;
+}
+
+bool ThreePointStrategy::findBedDelta()
+{
+    if (home) zprobe->home();
+    // move to an initial position fast so as to not take all day, we move down max_z - initial_height, which is set in config, default 10mm
+    float deltaz = zprobe->getProbeHeight();
+    zprobe->coordinated_move(NAN, NAN, deltaz, zprobe->getFastFeedrate());
+    zprobe->coordinated_move(0, 0, NAN, zprobe->getFastFeedrate()); // move to 0,0
+
+    // find bed at 0,0 run at slow rate so as to not hit bed hard
+    float mm;
+    if(!zprobe->run_probe_return(mm, zprobe->getSlowFeedrate())) return false;
+
+    float dz = zprobe->getProbeHeight() - mm;
+    zprobe->coordinated_move(NAN, NAN, dz, zprobe->getFastFeedrate(), true); // relative move
+
+    return true;
+}
+
+bool ThreePointStrategy::findBed()
+{
+    if (is_delta) return findBedDelta();
+    else return findBedCartesian();
+}
+
+bool ThreePointStrategy::doProbing(StreamOutput *stream)
+{
+    float x, y;
+    // check the probe points have been defined
+    for (int i = 0; i < 3; ++i) {
+        std::tie(x, y) = probe_points[i];
+        if(isnan(x) || isnan(y)) {
+            stream->printf("Probe point P%d has not been defined, use M557 P%d Xnnn Ynnn to define it\n", i, i);
+            return false;
+        }
+    }
+
+    if (!findBed()) return false;
 
     // probe the three points
     Vector3 v[3];

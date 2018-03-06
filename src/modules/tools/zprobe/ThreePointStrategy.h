@@ -21,6 +21,9 @@ public:
     float getZOffset(float x, float y);
 
 private:
+    bool findBed();
+    bool findBedCartesian();
+    bool findBedDelta();
     void homeXY();
     bool doProbing(StreamOutput *stream);
     std::tuple<float, float> parseXY(const char *str);
@@ -39,6 +42,7 @@ private:
     uint16_t probe_m_code:10;
     uint16_t status_m_code:10;
     uint16_t test_m_code:10;
+    bool is_delta;
 };
 
 #endif
